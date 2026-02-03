@@ -127,12 +127,15 @@ class TerritoryTileService {
   }
 
   /// Get all tiles in a visible region (bounds). Returns tile IDs that overlap the region.
+  /// Uses finer sampling for high precision (small tiles) to ensure full coverage.
   Set<TileId> getTilesInBounds(LatLngBounds bounds) {
     final set = <TileId>{};
-    final stepLat = (bounds.northeast.latitude - bounds.southwest.latitude) / 20;
-    final stepLon = (bounds.northeast.longitude - bounds.southwest.longitude) / 20;
-    for (var i = 0; i <= 20; i++) {
-      for (var j = 0; j <= 20; j++) {
+    // More samples for precision 7+ (~200m tiles) so we don't miss tiles
+    final steps = precision >= 7 ? 50 : 20;
+    final stepLat = (bounds.northeast.latitude - bounds.southwest.latitude) / steps;
+    final stepLon = (bounds.northeast.longitude - bounds.southwest.longitude) / steps;
+    for (var i = 0; i <= steps; i++) {
+      for (var j = 0; j <= steps; j++) {
         final lat = bounds.southwest.latitude + i * stepLat;
         final lon = bounds.southwest.longitude + j * stepLon;
         set.add(getTileId(lat, lon));

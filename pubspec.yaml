@@ -127,3 +127,8 @@ flutter_launcher_icons:
   ios: true
   image_path: "assets/run_wars_logo.png"
   min_sdk_android: 21
+  # iPhone-style: remove transparency for iOS (uses black where transparent)
+  remove_alpha_ios: true
+  # Android adaptive icon (like iPhone's clean look)
+  adaptive_icon_background: "#000000"
+  adaptive_icon_foreground: "assets/run_wars_logo.png"

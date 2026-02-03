@@ -94,7 +94,7 @@ class StravaMapsScreen extends HookConsumerWidget {
                       ),
                     ),
                     Text(
-                      'Precision: 6 (~1.2 km)',
+                      'Precision: ${tileService.precision} (~200 m)',
                       style: TextStyle(
                         fontSize: 12,
                         color: StravaTheme.grey600,
