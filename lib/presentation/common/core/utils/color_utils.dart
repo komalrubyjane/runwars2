@@ -2,12 +2,14 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
-/// Utility class for color-related operations.
+import 'package:run_flutter_run/core/theme/strava_theme.dart';
+
+/// Utility class for color-related operations. Uses Strava theme.
 class ColorUtils {
-  static Color main = Colors.teal.shade800;
-  static Color mainDarker = Colors.teal.shade900;
-  static Color mainMedium = Colors.teal.shade700;
-  static Color mainLight = Colors.teal.shade100;
+  static Color main = StravaTheme.orange;
+  static Color mainDarker = StravaTheme.orangeDark;
+  static Color mainMedium = StravaTheme.orange;
+  static Color mainLight = StravaTheme.orangeLight;
 
   static Color error = Colors.red.shade600;
   static Color errorDarker = Colors.red.shade800;
@@ -18,22 +20,22 @@ class ColorUtils {
   static Color white = Colors.white;
   static Color black = Colors.black;
   static Color red = Colors.red;
-  static Color green = Colors.green;
-  static Color greenDarker = Colors.green.shade700;
+  static Color green = StravaTheme.green;
+  static Color greenDarker = const Color(0xFF169B45);
   static Color transparent = Colors.transparent;
-  static Color grey = Colors.grey.shade600;
-  static Color greyDarker = Colors.grey.shade700;
-  static Color greyLight = Colors.grey.shade300;
-  static Color blueGrey = Colors.blueGrey;
-  static Color blueGreyDarker = Colors.blueGrey.shade900;
-  static Color backgroundLight = Colors.white;
+  static Color grey = StravaTheme.grey600;
+  static Color greyDarker = StravaTheme.grey800;
+  static Color greyLight = StravaTheme.grey200;
+  static Color blueGrey = StravaTheme.grey600;
+  static Color blueGreyDarker = StravaTheme.grey800;
+  static Color backgroundLight = StravaTheme.white;
 
-  /// List of colors used for generating color tuples.
+  /// List of colors used for generating color tuples (Strava-style).
   static List<Color> colorList = [
-    Colors.teal,
-    Colors.orange,
-    Colors.blueGrey,
-    Colors.red
+    StravaTheme.orange,
+    StravaTheme.orangeDark,
+    StravaTheme.green,
+    Colors.blueGrey
   ];
 
   /// Generates a darker color based on the given [baseColor].

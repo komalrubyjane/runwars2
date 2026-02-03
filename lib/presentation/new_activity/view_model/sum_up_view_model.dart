@@ -1,4 +1,5 @@
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 
 import '../../../data/model/request/activity_request.dart';
 import '../../../data/repositories/activity_repository_impl.dart';
@@ -36,7 +37,7 @@ class SumUpViewModel extends StateNotifier<SumUpState> {
     state = state.copyWith(type: type);
   }
 
-  /// Saves the activity.
+  /// Saves the activity (Supabase + legacy API when available).
   void save() async {
     state = state.copyWith(isSaving: true);
 
@@ -48,6 +49,19 @@ class SumUpViewModel extends StateNotifier<SumUpState> {
     ));
 
     final locations = ref.read(locationViewModelProvider).savedPositions;
+    final distance = ref.read(metricsViewModelProvider).distance;
+    final durationSeconds = endDatetime.difference(startDatetime).inSeconds;
+    final locationNotifier = ref.read(locationViewModelProvider.notifier);
+
+    // Save to Supabase when user is authenticated
+    final supabaseUser = Supabase.instance.client.auth.currentUser;
+    if (supabaseUser != null) {
+      await locationNotifier.saveActivityToSupabase(
+        userId: supabaseUser.id,
+        distance: distance,
+        durationSeconds: durationSeconds,
+      );
+    }
 
     ref
         .read(activityRepositoryProvider)
@@ -55,7 +69,7 @@ class SumUpViewModel extends StateNotifier<SumUpState> {
           type: state.type,
           startDatetime: startDatetime,
           endDatetime: endDatetime,
-          distance: ref.read(metricsViewModelProvider).distance,
+          distance: distance,
           locations: locations,
         ))
         .then((value) async {
@@ -68,6 +82,14 @@ class SumUpViewModel extends StateNotifier<SumUpState> {
       ref.read(locationViewModelProvider.notifier).startGettingLocation();
 
       state = state.copyWith(isSaving: false);
+      navigatorKey.currentState?.pop();
+    }).catchError((_) {
+      // Legacy API may fail; still close if Supabase save worked
+      state = state.copyWith(isSaving: false);
+      ref.read(timerViewModelProvider.notifier).resetTimer();
+      ref.read(locationViewModelProvider.notifier).resetSavedPositions();
+      ref.read(metricsViewModelProvider.notifier).reset();
+      ref.read(locationViewModelProvider.notifier).startGettingLocation();
       navigatorKey.currentState?.pop();
     });
   }

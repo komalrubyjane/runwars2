@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
+import '../../common/leaderboard/leaderboard_screen.dart';
+
 /// Strava-like stats and leaderboards screen
 class StravaStatsScreen extends HookConsumerWidget {
   const StravaStatsScreen({super.key});
@@ -30,7 +32,7 @@ class StravaStatsScreen extends HookConsumerWidget {
           children: [
             _buildMyStatsTab(),
             _buildSegmentsTab(),
-            _buildLeaderboardTab(),
+            const LeaderboardScreen(), // Supabase daily leaderboard
           ],
         ),
       ),

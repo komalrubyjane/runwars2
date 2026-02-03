@@ -6,12 +6,14 @@ import 'package:run_flutter_run/l10n/app_localizations.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:stack_trace/stack_trace.dart' as stack_trace;
+import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'core/config/supabase_config.dart';
+import 'core/theme/strava_theme.dart';
 import 'core/utils/storage_utils.dart';
 import 'l10n/support_locale.dart';
 import 'presentation/common/core/services/text_to_speech_service.dart';
 import 'presentation/common/core/utils/color_utils.dart';
-import 'presentation/common/core/utils/ui_utils.dart';
 import 'presentation/home/screens/home_screen.dart';
 import 'presentation/login/screens/login_screen.dart';
 import 'presentation/my_activities/screens/activity_list_screen.dart';
@@ -23,6 +25,14 @@ final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // Initialize Supabase (auth, database, realtime)
+  await Supabase.initialize(
+    url: SupabaseConfig.projectUrl,
+    anonKey: SupabaseConfig.anonKey,
+  );
+  debugPrint('[Supabase] Connected: ${SupabaseConfig.projectUrl}');
+  
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
   ]);
@@ -84,16 +94,12 @@ class MyApp extends HookConsumerWidget {
       navigatorKey: navigatorKey,
       title: 'Run Flutter Run',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
+      theme: StravaTheme.lightTheme.copyWith(
         textSelectionTheme: TextSelectionThemeData(
           cursorColor: ColorUtils.main,
           selectionColor: ColorUtils.main,
           selectionHandleColor: ColorUtils.main,
         ),
-        primaryColor: ColorUtils.main,
-        splashColor: ColorUtils.blueGreyDarker,
-        bottomSheetTheme:
-            BottomSheetThemeData(backgroundColor: ColorUtils.transparent),
       ),
       localizationsDelegates: const [
         AppLocalizations.delegate,
@@ -112,17 +118,9 @@ class MyApp extends HookConsumerWidget {
 
     provider.init();
 
-    return FutureBuilder<String?>(
-      future: provider.getJwt(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return buildMaterialApp(Center(child: UIUtils.loader));
-        } else if (snapshot.hasData && snapshot.data != null) {
-          return buildMaterialApp(const HomeScreen());
-        } else {
-          return buildMaterialApp(LoginScreen());
-        }
-      },
-    );
+    // Show login first; go to Home only when authenticated via Supabase
+    final supabaseUser = Supabase.instance.client.auth.currentUser;
+    final home = supabaseUser != null ? const HomeScreen() : LoginScreen();
+    return buildMaterialApp(home);
   }
 }

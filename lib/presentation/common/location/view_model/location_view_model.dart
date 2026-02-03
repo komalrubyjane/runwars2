@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
+import '../../../../../core/services/supabase_service.dart';
 import '../../../../../data/model/request/location_request.dart';
 import '../../metrics/view_model/metrics_view_model.dart';
 import '../../timer/viewmodel/timer_view_model.dart';
@@ -277,5 +279,36 @@ class LocationViewModel extends StateNotifier<LocationState> {
     // Average stride length is 0.75 meters (can be adjusted)
     const strideLength = 0.75;
     return (totalDistance / strideLength).round();
+  }
+
+  /// Save the completed activity to Supabase
+  Future<bool> saveActivityToSupabase({
+    required String userId,
+    required double distance,
+    required int durationSeconds,
+  }) async {
+    try {
+      final pathPoints = state.savedPositions
+          .map((loc) => {
+                'latitude': loc.latitude,
+                'longitude': loc.longitude,
+                'timestamp': loc.datetime.toIso8601String(),
+              })
+          .toList();
+
+      await SupabaseService().saveActivity(
+        userId: userId,
+        distance: distance,
+        steps: state.stepCount,
+        durationSeconds: durationSeconds,
+        pathPoints: pathPoints,
+      );
+
+      debugPrint('[Supabase] Activity saved (distance: ${distance}km, polyline points: ${pathPoints.length})');
+      return true;
+    } catch (e) {
+      debugPrint('[Supabase] Error saving activity: $e');
+      return false;
+    }
   }
 }

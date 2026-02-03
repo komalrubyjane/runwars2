@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
-import '../../../data/model/request/registration_request.dart';
-import '../../../data/repositories/user_repository_impl.dart';
 import '../../../main.dart';
+import '../../common/core/providers/auth_provider.dart';
 import 'state/registration_state.dart';
 
 final registrationViewModelProvider =
@@ -11,38 +10,33 @@ final registrationViewModelProvider =
   (ref) => RegistrationViewModel(ref),
 );
 
+/// Registration via Supabase.
 class RegistrationViewModel extends StateNotifier<RegistrationState> {
   Ref ref;
 
-  /// Creates a new instance of [RegistrationViewModel].
   RegistrationViewModel(this.ref) : super(RegistrationState.initial());
 
-  /// Sets the firstname in the state.
   void setFirstname(String? firstname) {
     state = state.copyWith(firstname: firstname);
   }
 
-  /// Sets the lastname in the state.
   void setLastname(String? lastname) {
     state = state.copyWith(lastname: lastname);
   }
 
-  /// Sets the username in the state.
   void setUsername(String? username) {
     state = state.copyWith(username: username);
   }
 
-  /// Sets the password in the state.
   void setPassword(String? password) {
     state = state.copyWith(password: password);
   }
 
-  /// Sets the check password in the state.
   void setCheckPassword(String? checkPassword) {
     state = state.copyWith(checkPassword: checkPassword);
   }
 
-  /// Submits the registration form.
+  /// Submits the registration form via Supabase.
   Future<void> submitForm(
       BuildContext context, GlobalKey<FormState> formKey) async {
     if (formKey.currentState!.validate()) {
@@ -50,39 +44,48 @@ class RegistrationViewModel extends StateNotifier<RegistrationState> {
 
       state = state.copyWith(isLogging: true);
 
-      final userRepository = ref.read(userRepositoryProvider);
-      final registrationRequest = RegistrationRequest(
-        firstname: state.firstname,
-        lastname: state.lastname,
-        username: state.username,
-        password: state.password,
-      );
+      final authNotifier = ref.read(authProvider.notifier);
+      final fullName = '${state.firstname} ${state.lastname}'.trim();
+      if (fullName.isEmpty) {
+        state = state.copyWith(isLogging: false);
+        _showError(context, 'Please enter your name');
+        return;
+      }
 
       try {
-        await userRepository.register(registrationRequest);
-        navigatorKey.currentState?.pop();
-      } catch (error) {
-        // Show error message to the user
-        showDialog(
-          context: context,
-          builder: (context) {
-            return AlertDialog(
-              title: const Text('Error'),
-              content: Text(error.toString()),
-              actions: <Widget>[
-                TextButton(
-                  child: const Text('OK'),
-                  onPressed: () {
-                    Navigator.pop(context);
-                  },
-                ),
-              ],
-            );
-          },
+        final success = await authNotifier.signUp(
+          email: state.username.trim(),
+          password: state.password,
+          fullName: fullName,
         );
-      } finally {
+
         state = state.copyWith(isLogging: false);
+
+        if (success && context.mounted) {
+          navigatorKey.currentState?.pop();
+        } else if (authNotifier.state.errorMessage != null) {
+          _showError(context, authNotifier.state.errorMessage!);
+        }
+      } catch (error) {
+        state = state.copyWith(isLogging: false);
+        _showError(context, error.toString());
       }
     }
+  }
+
+  void _showError(BuildContext context, String message) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Error'),
+        content: Text(message),
+        actions: <Widget>[
+          TextButton(
+            child: const Text('OK'),
+            onPressed: () => Navigator.pop(ctx),
+          ),
+        ],
+      ),
+    );
   }
 }

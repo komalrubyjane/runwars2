@@ -2,13 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
-import '../../location/models/gps_tracking_model.dart';
-import '../../location/view_model/location_view_model.dart';
-import '../../location/view_model/run_control_view_model.dart';
-import '../../location/widgets/gps_tracking_stats.dart';
-import '../../location/widgets/map_visualization_utils.dart';
-import '../../location/widgets/run_control_button.dart';
-import '../../location/widgets/location_map.dart';
+import '../../common/location/models/gps_tracking_model.dart';
+import '../../common/location/view_model/location_view_model.dart';
+import '../../common/location/view_model/run_control_view_model.dart';
+import '../../common/location/view_model/state/location_state.dart';
+import '../../common/location/view_model/state/run_control_state.dart';
+import '../../common/location/widgets/gps_tracking_stats.dart';
+import '../../common/location/widgets/map_visualization_utils.dart';
+import '../../common/location/widgets/run_control_button.dart';
+import '../../common/location/widgets/location_map.dart';
 
 /// Example screen demonstrating full GPS tracking capabilities
 class GPSTrackingExampleScreen extends HookConsumerWidget {
@@ -121,11 +123,11 @@ class GPSTrackingExampleScreen extends HookConsumerWidget {
         // Google Map
         LocationMap(
           points: trackPoints,
-          markers: loopMarkers,
+          markers: loopMarkers.toList(),
           mapController: null,
           circles: circles,
           polygons: polygons,
-          polylines: {
+          customPolylines: <Polyline>{
             ...boundaryPolylines,
             ...speedPolylines,
           },

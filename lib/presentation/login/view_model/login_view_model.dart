@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
-import '../../../data/model/request/login_request.dart';
-import '../../../data/repositories/user_repository_impl.dart';
 import '../../../main.dart';
+import '../../common/core/providers/auth_provider.dart';
 import '../../home/screens/home_screen.dart';
 import 'state/login_state.dart';
 
@@ -14,12 +13,13 @@ final loginViewModelProvider =
 );
 
 /// The view model class for the login screen.
+/// Uses Supabase for authentication.
 class LoginViewModel extends StateNotifier<LoginState> {
   final Ref ref;
 
   LoginViewModel(this.ref) : super(LoginState.initial());
 
-  /// Sets the username in the state.
+  /// Sets the username (email) in the state.
   void setUsername(String? username) {
     state = state.copyWith(username: username ?? '');
   }
@@ -29,7 +29,7 @@ class LoginViewModel extends StateNotifier<LoginState> {
     state = state.copyWith(password: password ?? '');
   }
 
-  /// Submits the login form.
+  /// Submits the login form via Supabase.
   Future<void> submitForm(
       BuildContext context, GlobalKey<FormState> formKey) async {
     if (formKey.currentState!.validate()) {
@@ -37,42 +37,43 @@ class LoginViewModel extends StateNotifier<LoginState> {
 
       state = state.copyWith(isLogging: true);
 
-      final userRepository = ref.read(userRepositoryProvider);
-      final loginRequest = LoginRequest(
-        username: state.username,
-        password: state.password,
-      );
+      final authNotifier = ref.read(authProvider.notifier);
 
       try {
-        await userRepository.login(loginRequest);
+        final success = await authNotifier.signIn(
+          email: state.username.trim(),
+          password: state.password,
+        );
 
         state = state.copyWith(isLogging: false);
 
-        navigatorKey.currentState?.pushReplacement(
-          MaterialPageRoute(builder: (context) => const HomeScreen()),
-        );
+        if (success && context.mounted) {
+          navigatorKey.currentState?.pushReplacement(
+            MaterialPageRoute(builder: (context) => const HomeScreen()),
+          );
+        } else if (authNotifier.state.errorMessage != null) {
+          _showError(context, authNotifier.state.errorMessage!);
+        }
       } catch (error) {
-        // Handle login error
         state = state.copyWith(isLogging: false);
-        // Show error message to the user
-        showDialog(
-          context: context,
-          builder: (context) {
-            return AlertDialog(
-              title: const Text('Error'),
-              content: Text(error.toString()),
-              actions: <Widget>[
-                TextButton(
-                  child: const Text('OK'),
-                  onPressed: () {
-                    Navigator.pop(context);
-                  },
-                ),
-              ],
-            );
-          },
-        );
+        _showError(context, error.toString());
       }
     }
+  }
+
+  void _showError(BuildContext context, String message) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Error'),
+        content: Text(message),
+        actions: <Widget>[
+          TextButton(
+            child: const Text('OK'),
+            onPressed: () => Navigator.pop(ctx),
+          ),
+        ],
+      ),
+    );
   }
 }

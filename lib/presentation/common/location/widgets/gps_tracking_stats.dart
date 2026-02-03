@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
 import '../models/gps_tracking_model.dart';
+import '../services/territory_capture_service.dart';
 import '../view_model/location_view_model.dart';
 
 /// Widget that displays GPS tracking statistics and analytics
@@ -188,6 +189,3 @@ class GPSTrackingStats extends HookConsumerWidget {
     }
   }
 }
-
-// Import for territory capture service
-import '../services/territory_capture_service.dart';

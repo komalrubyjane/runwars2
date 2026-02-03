@@ -1,72 +1,99 @@
 import 'package:flutter/material.dart';
-import 'package:run_flutter_run/l10n/app_localizations.dart';
-import 'package:google_nav_bar/google_nav_bar.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
-import '../../common/core/utils/color_utils.dart';
+import '../../../core/theme/strava_theme.dart';
 import '../../community/screens/community_screen.dart';
-import '../../my_activities/screens/activity_list_screen.dart';
+import '../../maps/screens/strava_maps_screen.dart';
 import '../../new_activity/screens/strava_tracking_screen.dart';
 import '../../settings/screens/strava_profile_screen.dart';
 import '../view_model/home_view_model.dart';
 import '../screens/strava_feed_screen.dart';
 
-/// An enumeration representing the available tabs in the home screen.
-enum Tabs { home, list, community, settings }
-
-/// The home screen widget.
+/// Strava-style 5 tabs: Home, Maps, Record, Groups, You
 class HomeScreen extends HookConsumerWidget {
   const HomeScreen({super.key});
+
+  static const _tabs = [
+    _Tab(Icons.home_outlined, Icons.home, 'Home'),
+    _Tab(Icons.map_outlined, Icons.map, 'Maps'),
+    _Tab(Icons.play_circle_outline, Icons.play_circle_filled, 'Record'),
+    _Tab(Icons.groups_outlined, Icons.groups, 'Groups'),
+    _Tab(Icons.person_outline, Icons.person, 'You'),
+  ];
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(homeViewModelProvider);
-    final homeViewModel = ref.watch(homeViewModelProvider.notifier);
-    final currentIndex = state.currentIndex;
+    final notifier = ref.read(homeViewModelProvider.notifier);
+    final index = state.currentIndex.clamp(0, 4);
 
-    final tabs = [
-      const StravaTrackingScreen(),
+    final bodies = [
       const StravaFeedScreen(),
+      const StravaMapsScreen(),
+      const StravaTrackingScreen(),
       CommunityScreen(),
       const StravaProfileScreen(),
     ];
 
     return Scaffold(
-        body: SafeArea(child: tabs[currentIndex]),
-        bottomNavigationBar: Container(
-            color: ColorUtils.mainMedium,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 20),
-              child: GNav(
-                backgroundColor: ColorUtils.mainMedium,
-                color: ColorUtils.white,
-                activeColor: ColorUtils.white,
-                tabBackgroundColor: ColorUtils.mainDarker,
-                padding: const EdgeInsets.all(16),
-                selectedIndex: currentIndex,
-                onTabChange: (value) {
-                  homeViewModel.setCurrentIndex(value);
-                },
-                gap: 8,
-                tabs: [
-                  GButton(
-                    icon: Icons.directions_run,
-                    text: 'Record',
+      body: SafeArea(child: bodies[index]),
+      bottomNavigationBar: Container(
+        decoration: const BoxDecoration(
+          color: StravaTheme.white,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black12,
+              blurRadius: 8,
+              offset: Offset(0, -2),
+            ),
+          ],
+        ),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: List.generate(5, (i) {
+                final t = _tabs[i];
+                final selected = i == index;
+                return InkWell(
+                  onTap: () => notifier.setCurrentIndex(i),
+                  borderRadius: BorderRadius.circular(8),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          selected ? t.selectedIcon : t.icon,
+                          size: 26,
+                          color: selected ? StravaTheme.orange : StravaTheme.grey600,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          t.label,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: selected ? StravaTheme.orange : StravaTheme.grey600,
+                            fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                  GButton(
-                    icon: Icons.feed,
-                    text: 'Feed',
-                  ),
-                  GButton(
-                    icon: Icons.people,
-                    text: AppLocalizations.of(context)!.community,
-                  ),
-                  GButton(
-                    icon: Icons.person,
-                    text: 'Profile',
-                  ),
-                ],
-              ),
-            )));
+                );
+              }),
+            ),
+          ),
+        ),
+      ),
+    );
   }
+}
+
+class _Tab {
+  final IconData icon;
+  final IconData selectedIcon;
+  final String label;
+  const _Tab(this.icon, this.selectedIcon, this.label);
 }
