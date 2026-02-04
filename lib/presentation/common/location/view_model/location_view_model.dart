@@ -43,127 +43,127 @@ class LocationViewModel extends StateNotifier<LocationState> {
   }
 
   /// Starts getting the user's location updates.
+  /// Creates the position stream first so tracking works even if initial position is slow.
   Future<void> startGettingLocation() async {
-    final metricsProvider = ref.read(metricsViewModelProvider.notifier);
-
     var permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever) {
-        print('Location permission denied');
+        debugPrint('Location permission denied');
         return;
       }
     }
 
-    // Enable high-accuracy location services
-    bool isLocationServiceEnabled = await Geolocator.isLocationServiceEnabled();
-    print('Location service enabled: $isLocationServiceEnabled');
-    
+    final isLocationServiceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!isLocationServiceEnabled) {
-      print('Location services are disabled. Please enable them.');
+      debugPrint('Location services are disabled.');
       return;
     }
 
-    // Get initial position
+    // Create stream first so we always receive updates once permission is granted
+    if (_positionStream != null) return;
+    _positionStream = Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.best,
+        distanceFilter: 1,
+        timeLimit: Duration(seconds: 1),
+      ),
+    ).listen(_onPositionUpdate);
+
+    // Get initial position (don't block stream)
     try {
       final initialPosition = await Geolocator.getCurrentPosition(
         forceAndroidLocationManager: false,
       );
-      print('Initial position: ${initialPosition.latitude}, ${initialPosition.longitude}');
-      state = state.copyWith(currentPosition: initialPosition);
+      if (mounted) {
+        state = state.copyWith(currentPosition: initialPosition);
+      }
     } catch (e) {
-      print('Error getting initial position: $e');
+      debugPrint('Initial position error: $e');
+    }
+  }
+
+  void _onPositionUpdate(Position position) {
+    if (!mounted || _positionStream == null) return;
+
+    // Always update current position so UI and polyline can extend to live position
+    state = state.copyWith(
+      currentPosition: position,
+      lastPosition: state.currentPosition ?? position,
+    );
+
+    // Record to track only when run is active (Strava Record screen)
+    final shouldRecord = _isRunActive;
+    if (shouldRecord) {
+      try {
+        ref.read(metricsViewModelProvider.notifier).updateMetrics();
+      } catch (_) {}
+      final positions = List<LocationRequest>.from(state.savedPositions);
+      positions.add(LocationRequest(
+        datetime: DateTime.now(),
+        latitude: position.latitude,
+        longitude: position.longitude,
+      ));
+      final newStepCount = _calculateStepsFromDistance(positions);
+      state = state.copyWith(
+        savedPositions: positions,
+        stepCount: newStepCount,
+      );
+      _addGPSPoint(position);
+      _updateRunAnalytics();
     }
 
-    _positionStream ??=
-        Geolocator.getPositionStream(
-          locationSettings: const LocationSettings(
-            accuracy: LocationAccuracy.best,
-            distanceFilter: 1, // Update every 1 meter
-            timeLimit: Duration(seconds: 1), // At least every 1s for real-time distance/speed
-          ),
-        ).listen((Position position) {
-      if (mounted && _positionStream != null) {
-        // Log position updates for debugging
-        print('GPS Update: Lat=${position.latitude}, Lon=${position.longitude}, Accuracy=${position.accuracy}m');
-        
-        // Save positions when run is active (Strava tracking) OR when timer is running (legacy flow)
-        final timerProvider = ref.read(timerViewModelProvider.notifier);
-        final shouldRecord = _isRunActive ||
-            (timerProvider.isTimerRunning() && timerProvider.hasTimerStarted());
-
-        if (shouldRecord) {
-          metricsProvider.updateMetrics();
-
-          final positions = List<LocationRequest>.from(state.savedPositions);
-          positions.add(
-            LocationRequest(
-              datetime: DateTime.now(),
-              latitude: position.latitude,
-              longitude: position.longitude,
-            ),
-          );
-
-          final newStepCount = _calculateStepsFromDistance(positions);
-
-          state = state.copyWith(
-            savedPositions: positions,
-            stepCount: newStepCount,
-          );
-
-          if (_isRunActive) {
-            _addGPSPoint(position);
-            _updateRunAnalytics();
-          }
-        }
-
-        state = state.copyWith(
-          currentPosition: position,
-          lastPosition: state.currentPosition ?? position,
+    // Throttled Supabase report
+    final now = DateTime.now();
+    if (_lastLocationReportAt == null ||
+        now.difference(_lastLocationReportAt!) >= _locationReportInterval) {
+      _lastLocationReportAt = now;
+      final user = SupabaseService().currentUser;
+      if (user != null) {
+        SupabaseService().upsertUserLocation(
+          userId: user.id,
+          lat: position.latitude,
+          lng: position.longitude,
         );
-
-        // Throttled report to Supabase for "nearby" / Groups (every 30s)
-        final now = DateTime.now();
-        if (_lastLocationReportAt == null ||
-            now.difference(_lastLocationReportAt!) >= _locationReportInterval) {
-          _lastLocationReportAt = now;
-          final user = SupabaseService().currentUser;
-          if (user != null) {
-            SupabaseService().upsertUserLocation(
-              userId: user.id,
-              lat: position.latitude,
-              lng: position.longitude,
-            );
-          }
-        }
       }
-    });
+    }
   }
 
   /// Starts a new run (enables GPS tracking, loop detection, territory capture).
-  /// Clears previous track and adds current position as the first point so trajectory and distance work from the first second.
+  /// Adds current position as first point so trajectory and metrics work immediately; if no position yet, fetches it.
   void startRun() {
     _isRunActive = true;
     _gpsTrack.clear();
     _detectedLoops = [];
     _territory = null;
 
-    // Start with a fresh track: only current position as first point (so distance/steps/speed update as soon as user moves)
     if (state.currentPosition != null) {
-      final p = state.currentPosition!;
-      final positions = [
-        LocationRequest(
-          datetime: DateTime.now(),
-          latitude: p.latitude,
-          longitude: p.longitude,
-        ),
-      ];
-      state = state.copyWith(savedPositions: positions, stepCount: 0);
-      _addGPSPoint(p);
+      _addFirstPosition(state.currentPosition!);
     } else {
-      state = state.copyWith(savedPositions: []);
+      // Fetch position so we have a start point and trajectory can draw (stream will add more)
+      Geolocator.getCurrentPosition(forceAndroidLocationManager: false)
+          .then((Position p) {
+        if (mounted && _isRunActive && state.savedPositions.isEmpty) {
+          _addFirstPosition(p);
+        }
+      }).catchError((Object e) {
+        debugPrint('startRun getCurrentPosition: $e');
+      });
+      state = state.copyWith(savedPositions: [], stepCount: 0);
     }
+  }
+
+  void _addFirstPosition(Position p) {
+    final positions = [
+      LocationRequest(
+        datetime: DateTime.now(),
+        latitude: p.latitude,
+        longitude: p.longitude,
+      ),
+    ];
+    state = state.copyWith(currentPosition: p, savedPositions: positions, stepCount: 0);
+    _addGPSPoint(p);
   }
 
   /// Stops the current run and finalizes analytics
