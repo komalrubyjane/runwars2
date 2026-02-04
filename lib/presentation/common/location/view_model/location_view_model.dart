@@ -79,9 +79,9 @@ class LocationViewModel extends StateNotifier<LocationState> {
     _positionStream ??=
         Geolocator.getPositionStream(
           locationSettings: const LocationSettings(
-            accuracy: LocationAccuracy.best, // Highest accuracy
-            distanceFilter: 1, // Update every 1 meter for precise tracking
-            timeLimit: Duration(seconds: 3), // Max 3 seconds between updates
+            accuracy: LocationAccuracy.best,
+            distanceFilter: 1, // Update every 1 meter
+            timeLimit: Duration(seconds: 1), // At least every 1s for real-time distance/speed
           ),
         ).listen((Position position) {
       if (mounted && _positionStream != null) {
@@ -141,12 +141,29 @@ class LocationViewModel extends StateNotifier<LocationState> {
     });
   }
 
-  /// Starts a new run (enables GPS tracking, loop detection, territory capture)
+  /// Starts a new run (enables GPS tracking, loop detection, territory capture).
+  /// Clears previous track and adds current position as the first point so trajectory and distance work from the first second.
   void startRun() {
     _isRunActive = true;
     _gpsTrack.clear();
     _detectedLoops = [];
     _territory = null;
+
+    // Start with a fresh track: only current position as first point (so distance/steps/speed update as soon as user moves)
+    if (state.currentPosition != null) {
+      final p = state.currentPosition!;
+      final positions = [
+        LocationRequest(
+          datetime: DateTime.now(),
+          latitude: p.latitude,
+          longitude: p.longitude,
+        ),
+      ];
+      state = state.copyWith(savedPositions: positions, stepCount: 0);
+      _addGPSPoint(p);
+    } else {
+      state = state.copyWith(savedPositions: []);
+    }
   }
 
   /// Stops the current run and finalizes analytics
@@ -276,28 +293,31 @@ class LocationViewModel extends StateNotifier<LocationState> {
     return _positionStream?.isPaused ?? false;
   }
 
-  /// Calculates step count from accumulated distance
-  /// Assumes average stride length of 0.75 meters per step
+  /// Calculates step count from accumulated distance (haversine).
+  /// Assumes average stride length of 0.75 meters per step.
   int _calculateStepsFromDistance(List<LocationRequest> positions) {
     if (positions.length < 2) return 0;
-    
-    double totalDistance = 0;
-    for (int i = 1; i < positions.length; i++) {
-      final prev = positions[i - 1];
-      final curr = positions[i];
-      
-      // Calculate distance using simple distance formula
-      final dLat = curr.latitude - prev.latitude;
-      final dLon = curr.longitude - prev.longitude;
-      
-      // Rough conversion: 1 degree ≈ 111 km
-      final distanceKm = 111 * math.sqrt(dLat * dLat + dLon * dLon);
-      totalDistance += distanceKm * 1000; // Convert to meters
-    }
-    
-    // Average stride length is 0.75 meters (can be adjusted)
+    final totalDistanceMeters = _haversineDistanceMeters(positions);
     const strideLength = 0.75;
-    return (totalDistance / strideLength).round();
+    return (totalDistanceMeters / strideLength).round();
+  }
+
+  /// Haversine distance in meters for a list of positions (sum of segments).
+  double _haversineDistanceMeters(List<LocationRequest> positions) {
+    if (positions.length < 2) return 0;
+    const R = 6371000.0; // Earth radius in meters
+    double total = 0;
+    for (int i = 1; i < positions.length; i++) {
+      final lat1 = positions[i - 1].latitude * math.pi / 180;
+      final lat2 = positions[i].latitude * math.pi / 180;
+      final dLat = (positions[i].latitude - positions[i - 1].latitude) * math.pi / 180;
+      final dLon = (positions[i].longitude - positions[i - 1].longitude) * math.pi / 180;
+      final a = math.sin(dLat / 2) * math.sin(dLat / 2) +
+          math.cos(lat1) * math.cos(lat2) * math.sin(dLon / 2) * math.sin(dLon / 2);
+      final c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+      total += R * c;
+    }
+    return total;
   }
 
   /// Save the completed activity to Supabase

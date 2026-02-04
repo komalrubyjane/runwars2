@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
@@ -39,22 +40,57 @@ class StravaTrackingScreen extends HookConsumerWidget {
       return () {};
     }, []);
 
-    // Tick every second when run active so timer/UI updates
+    // Tick every 500ms when run active so timer and distance feel real-time
     final tick = useState(0);
     useEffect(() {
       if (!runState.isRunning && !runState.isPaused) return null;
-      final t = Timer.periodic(const Duration(seconds: 1), (_) {
+      final t = Timer.periodic(const Duration(milliseconds: 500), (_) {
         tick.value++;
       });
       return t.cancel;
     }, [runState.isRunning, runState.isPaused]);
 
-    final points =
-        ref.read(locationViewModelProvider.notifier).savedPositionsLatLng();
+    // Use watched location state so polyline and metrics rebuild on every GPS update
+    List<LatLng> points = locationState.savedPositions
+        .map((p) => LatLng(p.latitude, p.longitude))
+        .toList();
+    // Extend polyline to current position in real time when run is active
+    if ((runState.isRunning || runState.isPaused) &&
+        locationState.currentPosition != null &&
+        points.isNotEmpty) {
+      final curr = locationState.currentPosition!;
+      final last = points.last;
+      if (last.latitude != curr.latitude || last.longitude != curr.longitude) {
+        points = [...points, LatLng(curr.latitude, curr.longitude)];
+      }
+    }
 
-    // Runner marker: orange when running, blue when idle
+    // Markers: start (green), end when finished (red), runner/current (orange/blue)
     final isRunning = runState.isRunning;
-    final markers = <Marker>[];
+    final markers = <Marker>{};
+    // Start point of trajectory
+    if (points.isNotEmpty) {
+      markers.add(
+        Marker(
+          markerId: const MarkerId('start'),
+          position: points.first,
+          infoWindow: const InfoWindow(title: 'Start', snippet: 'Starting point'),
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+        ),
+      );
+      // End point when run has ended (last recorded point)
+      if (runState.hasRunEnded && points.length >= 2) {
+        markers.add(
+          Marker(
+            markerId: const MarkerId('end'),
+            position: points.last,
+            infoWindow: const InfoWindow(title: 'End', snippet: 'Finish point'),
+            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+          ),
+        );
+      }
+    }
+    // Current position / runner
     if (locationState.currentPosition != null) {
       markers.add(
         Marker(
@@ -113,7 +149,7 @@ class StravaTrackingScreen extends HookConsumerWidget {
                 children: [
                   TrackingMapWithGrid(
                     points: points,
-                    markers: markers.toSet(),
+                    markers: markers,
                     closedLoopPolygons: closedLoopPolygons,
                   ),
                   if (isRunning || runState.isPaused)
@@ -377,20 +413,19 @@ class StravaTrackingScreen extends HookConsumerWidget {
     return 'READY';
   }
 
+  /// Haversine distance in meters along the path (for real-time distance/speed).
   double _calculateDistance(List locationData) {
+    if (locationData.length < 2) return 0;
+    const R = 6371000.0; // Earth radius in meters
     double total = 0;
     for (int i = 1; i < locationData.length; i++) {
-      // Simple haversine approximation
-      final lat1 = locationData[i - 1].latitude;
-      final lon1 = locationData[i - 1].longitude;
-      final lat2 = locationData[i].latitude;
-      final lon2 = locationData[i].longitude;
-
-      const R = 6371000; // Earth radius in meters
-      final dLat = (lat2 - lat1) * 3.14159 / 180;
-      final dLon = (lon2 - lon1) * 3.14159 / 180;
-      final a = (1 - (dLat * dLat / 2)) * (1 - (dLon * dLon / 2));
-      final c = 2 * (a > 0 ? 1 : -1) * a.toDouble();
+      final lat1 = locationData[i - 1].latitude * math.pi / 180;
+      final lat2 = locationData[i].latitude * math.pi / 180;
+      final dLat = (locationData[i].latitude - locationData[i - 1].latitude) * math.pi / 180;
+      final dLon = (locationData[i].longitude - locationData[i - 1].longitude) * math.pi / 180;
+      final a = math.sin(dLat / 2) * math.sin(dLat / 2) +
+          math.cos(lat1) * math.cos(lat2) * math.sin(dLon / 2) * math.sin(dLon / 2);
+      final c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
       total += R * c;
     }
     return total;

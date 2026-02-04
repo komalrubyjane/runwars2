@@ -56,12 +56,14 @@ class TrackingMapWithGrid extends HookConsumerWidget {
       });
     }
 
+    // Territory/route polyline — visible in real time as the user moves
     final routePolyline = points.length >= 2
         ? Polyline(
             polylineId: const PolylineId('route'),
             points: points,
             color: StravaTheme.orange,
-            width: 5,
+            width: 7,
+            geodesic: true,
           )
         : null;
 
