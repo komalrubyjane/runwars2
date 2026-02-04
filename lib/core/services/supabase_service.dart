@@ -290,6 +290,7 @@ class SupabaseService {
   }
 
   /// Fetch all recent user locations (e.g. updated in last 24h). Filter by 5 km in Dart.
+  /// Tries users(full_name) first; if FK fails, falls back to plain select (name can be from profile later).
   Future<List<Map<String, dynamic>>> getUserLocations() async {
     try {
       final cutoff = DateTime.now().subtract(const Duration(hours: 24)).toIso8601String();
@@ -302,7 +303,15 @@ class SupabaseService {
       if (kDebugMode) {
         print('Error fetching user locations: $e');
       }
-      return [];
+      try {
+        final fallback = await _client
+            .from('user_locations')
+            .select('user_id, lat, lng, updated_at')
+            .gte('updated_at', DateTime.now().subtract(const Duration(hours: 24)).toIso8601String());
+        return List<Map<String, dynamic>>.from(fallback);
+      } catch (_) {
+        return [];
+      }
     }
   }
 

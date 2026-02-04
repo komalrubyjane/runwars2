@@ -15,8 +15,11 @@ import '../../common/location/view_model/run_control_view_model.dart';
 import '../../common/location/view_model/state/run_control_state.dart';
 import '../../common/location/widgets/animated_runner_overlay.dart';
 import '../../common/location/widgets/run_control_button.dart';
+import '../../common/location/utils/runner_marker_icon.dart';
 import '../../common/location/widgets/tracking_map_with_grid.dart';
 import '../../common/metrics/widgets/metrics.dart';
+
+final _runnerIconProvider = FutureProvider<BitmapDescriptor>((ref) => getRunnerMarkerIcon());
 
 final _userProfileProvider = FutureProvider.family<Map<String, dynamic>?, String>((ref, userId) async {
   if (userId.isEmpty) return null;
@@ -90,7 +93,9 @@ class StravaTrackingScreen extends HookConsumerWidget {
         );
       }
     }
-    // Current position / runner
+    // Current position / runner — use stick-figure icon when running, else default
+    final runnerIconAsync = ref.watch(_runnerIconProvider);
+    final runnerIcon = runnerIconAsync.valueOrNull;
     if (locationState.currentPosition != null) {
       markers.add(
         Marker(
@@ -103,9 +108,11 @@ class StravaTrackingScreen extends HookConsumerWidget {
             title: isRunning ? 'Running' : 'Your Location',
             snippet: isRunning ? 'You are here' : 'You are here',
           ),
-          icon: BitmapDescriptor.defaultMarkerWithHue(
-            isRunning ? BitmapDescriptor.hueOrange : BitmapDescriptor.hueBlue,
-          ),
+          icon: (isRunning && runnerIcon != null)
+              ? runnerIcon
+              : BitmapDescriptor.defaultMarkerWithHue(
+                  isRunning ? BitmapDescriptor.hueOrange : BitmapDescriptor.hueBlue,
+                ),
         ),
       );
     }
@@ -260,6 +267,7 @@ class StravaTrackingScreen extends HookConsumerWidget {
         onRunStopped: () {
           final stats = locationNotifier.stopRun();
           runNotifier.stopRun(stats);
+          _claimTilesForCompletedLoops(ref, locationNotifier);
           _showActivitySummaryDialog(context, ref, stats);
         },
         onRunPaused: () {
@@ -510,6 +518,23 @@ class StravaTrackingScreen extends HookConsumerWidget {
       return '$hours:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
     }
     return '${minutes}m ${seconds}s';
+  }
+
+  void _claimTilesForCompletedLoops(WidgetRef ref, LocationViewModel locationNotifier) {
+    final user = SupabaseService().currentUser;
+    if (user == null) return;
+    final loops = locationNotifier.getDetectedLoops();
+    if (loops.isEmpty) return;
+    final tileService = ref.read(territoryTileServiceProvider);
+    final userName = user.userMetadata?['full_name'] as String? ??
+        user.email?.split('@').first ??
+        'Runner';
+    for (final loop in loops) {
+      final polygon = loop.pointsInLoop.map((p) => p.position).toList();
+      if (polygon.length >= 3) {
+        tileService.claimTilesInPolygon(polygon, user.id, ownerName: userName);
+      }
+    }
   }
 
   Future<void> _requestLocationPermission(

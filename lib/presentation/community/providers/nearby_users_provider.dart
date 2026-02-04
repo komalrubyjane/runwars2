@@ -20,14 +20,21 @@ class NearbyUser {
   });
 
   static NearbyUser fromMap(Map<String, dynamic> map) {
-    final users = map['users'];
     String? name;
+    final users = map['users'];
     if (users is Map) {
       name = users['full_name'] as String?;
     }
+    name ??= map['full_name'] as String?;
+    if (name == null || name.isEmpty) {
+      final email = map['email'] as String?;
+      if (email != null && email.isNotEmpty) {
+        name = email.toString().split('@').first;
+      }
+    }
     return NearbyUser(
       userId: map['user_id'] as String,
-      fullName: name ?? map['full_name'] as String?,
+      fullName: name,
       distanceKm: (map['distance_km'] as num?)?.toDouble() ?? 0,
       lat: (map['lat'] as num?)?.toDouble() ?? 0,
       lng: (map['lng'] as num?)?.toDouble() ?? 0,

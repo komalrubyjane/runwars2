@@ -9,6 +9,7 @@ import '../../common/core/enums/infinite_scroll_list.enum.dart';
 import '../../common/core/utils/color_utils.dart';
 import '../../common/core/utils/ui_utils.dart';
 import '../providers/community_activities_provider.dart';
+import '../providers/nearby_users_provider.dart';
 import '../view_model/community_view_model.dart';
 import '../view_model/pending_request_view_model.dart';
 import '../widgets/nearby_runners_section.dart';
@@ -57,6 +58,7 @@ class CommunityScreen extends HookConsumerWidget {
                 onRefresh: () async {
                   provider.refreshList();
                   ref.invalidate(communityActivitiesProvider);
+                  ref.invalidate(nearbyUsersProvider);
                 },
                 child: Column(children: [
                   communityStateProvider.when(

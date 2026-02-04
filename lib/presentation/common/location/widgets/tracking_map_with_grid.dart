@@ -6,7 +6,8 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import '../../../../core/services/territory_tile_service.dart';
 import '../../../../core/theme/strava_theme.dart';
 
-final _tileServiceProvider = Provider((ref) => TerritoryTileService(precision: 7));
+/// Shared so Record screen can claim tiles when a loop is completed.
+final territoryTileServiceProvider = Provider((ref) => TerritoryTileService(precision: 7));
 
 /// Map for Record screen: polyline, loops, grid overlay, markers
 class TrackingMapWithGrid extends HookConsumerWidget {
@@ -23,8 +24,9 @@ class TrackingMapWithGrid extends HookConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final tileService = ref.watch(_tileServiceProvider);
+    final tileService = ref.watch(territoryTileServiceProvider);
     final gridPolygons = useState<Set<Polygon>>({});
+    final gridClaimMarkers = useState<Set<Marker>>({});
     final controllerRef = useRef<GoogleMapController?>(null);
 
     final center = points.isNotEmpty
@@ -38,6 +40,7 @@ class TrackingMapWithGrid extends HookConsumerWidget {
       c.getVisibleRegion().then((bounds) {
         final tiles = tileService.getTilesInBounds(bounds);
         final poly = <Polygon>{};
+        final claimMarkers = <Marker>{};
         for (final id in tiles) {
           final tile = tileService.getOrCreateTile(id);
           final pts = tileService.getTilePolygon(id);
@@ -51,8 +54,24 @@ class TrackingMapWithGrid extends HookConsumerWidget {
                   .withValues(alpha: 0.08),
             ),
           );
+          if (tile.isClaimed && tile.ownerName != null && tile.ownerName!.isNotEmpty) {
+            final centerLat = (tile.bounds.southwest.latitude + tile.bounds.northeast.latitude) / 2;
+            final centerLng = (tile.bounds.southwest.longitude + tile.bounds.northeast.longitude) / 2;
+            claimMarkers.add(
+              Marker(
+                markerId: MarkerId('tile_$id'),
+                position: LatLng(centerLat, centerLng),
+                infoWindow: InfoWindow(
+                  title: 'Captured by ${tile.ownerName}',
+                  snippet: 'Territory tile',
+                ),
+                icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange),
+              ),
+            );
+          }
         }
         gridPolygons.value = poly;
+        gridClaimMarkers.value = claimMarkers;
       });
     }
 
@@ -116,6 +135,7 @@ class TrackingMapWithGrid extends HookConsumerWidget {
     }
 
     final allPolygons = {...gridPolygons.value, ...loopPolygons};
+    final allMarkers = {...markers, ...gridClaimMarkers.value};
 
     return GoogleMap(
       initialCameraPosition: CameraPosition(target: center, zoom: 15),
@@ -127,7 +147,7 @@ class TrackingMapWithGrid extends HookConsumerWidget {
         final c = controllerRef.value;
         if (c != null) updateGrid(c);
       },
-      markers: markers,
+      markers: allMarkers,
       polylines: {if (routePolyline != null) routePolyline},
       polygons: allPolygons,
       myLocationEnabled: true,

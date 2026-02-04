@@ -18,9 +18,28 @@ class NearbyRunnersSection extends ConsumerWidget {
         if (list.isEmpty) {
           return Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            child: Text(
-              'No other runners within 5 km',
-              style: TextStyle(color: Colors.grey[600], fontSize: 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Nearby (within 5 km)',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.grey[800],
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'No other runners within 5 km. Pull down to refresh.',
+                  style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                ),
+                TextButton.icon(
+                  onPressed: () => ref.invalidate(nearbyUsersProvider),
+                  icon: const Icon(Icons.refresh, size: 18),
+                  label: const Text('Refresh'),
+                ),
+              ],
             ),
           );
         }

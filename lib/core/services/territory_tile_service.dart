@@ -10,12 +10,14 @@ typedef TileId = String;
 class TerritoryTile {
   final TileId tileId;
   final String? ownerUserId;
+  final String? ownerName;
   final DateTime? claimedAt;
   final LatLngBounds bounds;
 
   const TerritoryTile({
     required this.tileId,
     this.ownerUserId,
+    this.ownerName,
     this.claimedAt,
     required this.bounds,
   });
@@ -85,14 +87,68 @@ class TerritoryTileService {
   }
 
   /// Claim a tile for a user (update in-memory; persist to Supabase separately if needed).
-  void claimTile(TileId tileId, String userId) {
+  void claimTile(TileId tileId, String userId, {String? ownerName}) {
     final tile = getOrCreateTile(tileId);
     _tiles[tileId] = TerritoryTile(
       tileId: tileId,
       ownerUserId: userId,
+      ownerName: ownerName ?? tile.ownerName,
       claimedAt: DateTime.now(),
       bounds: tile.bounds,
     );
+  }
+
+  /// Returns whether a point (lat, lng) is inside the polygon (ray-casting).
+  static bool _isPointInPolygon(double lat, double lng, List<LatLng> polygon) {
+    if (polygon.length < 3) return false;
+    int n = polygon.length;
+    bool inside = false;
+    for (int i = 0, j = n - 1; i < n; j = i++) {
+      final xi = polygon[i].longitude, yi = polygon[i].latitude;
+      final xj = polygon[j].longitude, yj = polygon[j].latitude;
+      final intersect = ((yi > lat) != (yj > lat)) &&
+          (lng < (xj - xi) * (lat - yi) / (yj - yi) + xi);
+      if (intersect) inside = !inside;
+    }
+    return inside;
+  }
+
+  /// Get all tile IDs whose center falls inside the polygon (e.g. a completed loop).
+  Set<TileId> getTileIdsInPolygon(List<LatLng> polygon) {
+    if (polygon.length < 3) return {};
+    double minLat = polygon.first.latitude;
+    double maxLat = polygon.first.latitude;
+    double minLng = polygon.first.longitude;
+    double maxLng = polygon.first.longitude;
+    for (final p in polygon) {
+      if (p.latitude < minLat) minLat = p.latitude;
+      if (p.latitude > maxLat) maxLat = p.latitude;
+      if (p.longitude < minLng) minLng = p.longitude;
+      if (p.longitude > maxLng) maxLng = p.longitude;
+    }
+    final bounds = LatLngBounds(
+      southwest: LatLng(minLat, minLng),
+      northeast: LatLng(maxLat, maxLng),
+    );
+    final candidateTiles = getTilesInBounds(bounds);
+    final result = <TileId>{};
+    for (final tileId in candidateTiles) {
+      final tile = getOrCreateTile(tileId);
+      final centerLat = (tile.bounds.southwest.latitude + tile.bounds.northeast.latitude) / 2;
+      final centerLng = (tile.bounds.southwest.longitude + tile.bounds.northeast.longitude) / 2;
+      if (_isPointInPolygon(centerLat, centerLng, polygon)) {
+        result.add(tileId);
+      }
+    }
+    return result;
+  }
+
+  /// Claim all tiles inside the polygon for the given user (e.g. after completing a loop).
+  void claimTilesInPolygon(List<LatLng> polygon, String userId, {String? ownerName}) {
+    final tileIds = getTileIdsInPolygon(polygon);
+    for (final id in tileIds) {
+      claimTile(id, userId, ownerName: ownerName);
+    }
   }
 
   /// Validate that a point is inside the tile (for claiming/validation).
@@ -101,12 +157,13 @@ class TerritoryTileService {
   }
 
   /// Update tile (e.g. change owner or clear claim).
-  void updateTile(TileId tileId, {String? ownerUserId, DateTime? claimedAt}) {
+  void updateTile(TileId tileId, {String? ownerUserId, String? ownerName, DateTime? claimedAt}) {
     final existing = _tiles[tileId];
     if (existing == null) return;
     _tiles[tileId] = TerritoryTile(
       tileId: tileId,
       ownerUserId: ownerUserId ?? existing.ownerUserId,
+      ownerName: ownerName ?? existing.ownerName,
       claimedAt: claimedAt ?? existing.claimedAt,
       bounds: existing.bounds,
     );
