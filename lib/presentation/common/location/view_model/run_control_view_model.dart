@@ -52,13 +52,17 @@ class RunControlViewModel extends StateNotifier<RunControlState> {
       runEndTime: DateTime.now(),
       hasRunEnded: true,
       finalStatistics: statistics,
+      lastCompletedRunStatistics: statistics,
     );
   }
 
-  /// Resets the run state
+  /// Resets the run state so user can start a new run; keeps last run stats for display
   void resetRun() {
     _stopwatch.reset();
-    state = RunControlState.initial();
+    final lastStats = state.finalStatistics ?? state.lastCompletedRunStatistics;
+    state = RunControlState.initial().copyWith(
+      lastCompletedRunStatistics: lastStats,
+    );
   }
 
   RunStatus getRunStatus() {

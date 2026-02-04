@@ -24,12 +24,16 @@ final locationViewModelProvider =
 class LocationViewModel extends StateNotifier<LocationState> {
   final Ref ref;
   StreamSubscription<Position>? _positionStream;
+  Timer? _fallbackPositionTimer;
   bool _isRunActive = false;
   final List<GPSPoint> _gpsTrack = [];
   List<DetectedLoop> _detectedLoops = [];
   CapturedTerritory? _territory;
   DateTime? _lastLocationReportAt;
   static const _locationReportInterval = Duration(seconds: 30);
+  /// Fallback: sample position every 1.5s when run is active so we always get points
+  static const _fallbackSampleInterval = Duration(milliseconds: 1500);
+  static const _minDistanceMeters = 0.5; // avoid duplicate points
 
   /// Creates a [LocationViewModel] instance.
   ///
@@ -38,6 +42,7 @@ class LocationViewModel extends StateNotifier<LocationState> {
 
   @override
   Future<void> dispose() async {
+    _stopFallbackPositionTimer();
     await cancelLocationStream();
     super.dispose();
   }
@@ -66,85 +71,93 @@ class LocationViewModel extends StateNotifier<LocationState> {
     _positionStream = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
         accuracy: LocationAccuracy.best,
-        distanceFilter: 1,
-        timeLimit: Duration(seconds: 1),
+        distanceFilter: 0,
       ),
-    ).listen(_onPositionUpdate);
+    ).listen(_onPositionUpdate, onError: (Object e, StackTrace st) {
+      debugPrint('Position stream error: $e');
+    });
 
     // Get initial position (don't block stream)
     try {
       final initialPosition = await Geolocator.getCurrentPosition(
         forceAndroidLocationManager: false,
       );
-      if (mounted) {
-        state = state.copyWith(currentPosition: initialPosition);
-      }
+      state = state.copyWith(currentPosition: initialPosition);
     } catch (e) {
       debugPrint('Initial position error: $e');
     }
   }
 
   void _onPositionUpdate(Position position) {
-    if (!mounted || _positionStream == null) return;
+    try {
+      if (_positionStream == null) return;
 
-    // Always update current position so UI and polyline can extend to live position
-    state = state.copyWith(
-      currentPosition: position,
-      lastPosition: state.currentPosition ?? position,
-    );
-
-    // Record to track only when run is active (Strava Record screen)
-    final shouldRecord = _isRunActive;
-    if (shouldRecord) {
-      try {
-        ref.read(metricsViewModelProvider.notifier).updateMetrics();
-      } catch (_) {}
-      final positions = List<LocationRequest>.from(state.savedPositions);
-      positions.add(LocationRequest(
-        datetime: DateTime.now(),
-        latitude: position.latitude,
-        longitude: position.longitude,
-      ));
-      final newStepCount = _calculateStepsFromDistance(positions);
+      // Always update current position so UI and polyline can extend to live position
       state = state.copyWith(
-        savedPositions: positions,
-        stepCount: newStepCount,
+        currentPosition: position,
+        lastPosition: state.currentPosition ?? position,
       );
-      _addGPSPoint(position);
-      _updateRunAnalytics();
-    }
 
-    // Throttled Supabase report
-    final now = DateTime.now();
-    if (_lastLocationReportAt == null ||
-        now.difference(_lastLocationReportAt!) >= _locationReportInterval) {
-      _lastLocationReportAt = now;
-      final user = SupabaseService().currentUser;
-      if (user != null) {
-        SupabaseService().upsertUserLocation(
-          userId: user.id,
-          lat: position.latitude,
-          lng: position.longitude,
+      // Record to track only when run is active (Strava Record screen)
+      if (_isRunActive) {
+        try {
+          ref.read(metricsViewModelProvider.notifier).updateMetrics();
+        } catch (_) {}
+        final positions = List<LocationRequest>.from(state.savedPositions);
+        positions.add(LocationRequest(
+          datetime: DateTime.now(),
+          latitude: position.latitude,
+          longitude: position.longitude,
+        ));
+        final newStepCount = _calculateStepsFromDistance(positions);
+        state = state.copyWith(
+          savedPositions: positions,
+          stepCount: newStepCount,
         );
+        _addGPSPoint(position);
+        _updateRunAnalytics();
       }
+
+      // Throttled Supabase report
+      final now = DateTime.now();
+      if (_lastLocationReportAt == null ||
+          now.difference(_lastLocationReportAt!) >= _locationReportInterval) {
+        _lastLocationReportAt = now;
+        final user = SupabaseService().currentUser;
+        if (user != null) {
+          SupabaseService().upsertUserLocation(
+            userId: user.id,
+            lat: position.latitude,
+            lng: position.longitude,
+          );
+        }
+      }
+    } catch (e, st) {
+      debugPrint('_onPositionUpdate error: $e $st');
     }
   }
 
   /// Starts a new run (enables GPS tracking, loop detection, territory capture).
-  /// Adds current position as first point so trajectory and metrics work immediately; if no position yet, fetches it.
+  /// Adds current position as first point so trajectory and metrics work; ensures stream is running.
   void startRun() {
     _isRunActive = true;
     _gpsTrack.clear();
     _detectedLoops = [];
     _territory = null;
+    _startFallbackPositionTimer();
+
+    // Ensure we have a position stream (e.g. user tapped Start before screen finished init)
+    if (_positionStream == null) {
+      startGettingLocation();
+    }
 
     if (state.currentPosition != null) {
       _addFirstPosition(state.currentPosition!);
     } else {
-      // Fetch position so we have a start point and trajectory can draw (stream will add more)
+      // Fetch position so we have a start point (stream will add more)
       Geolocator.getCurrentPosition(forceAndroidLocationManager: false)
           .then((Position p) {
-        if (mounted && _isRunActive && state.savedPositions.isEmpty) {
+        if (_isRunActive && state.savedPositions.isEmpty) {
           _addFirstPosition(p);
         }
       }).catchError((Object e) {
@@ -152,6 +165,54 @@ class LocationViewModel extends StateNotifier<LocationState> {
       });
       state = state.copyWith(savedPositions: [], stepCount: 0);
     }
+  }
+
+  void _startFallbackPositionTimer() {
+    _fallbackPositionTimer?.cancel();
+    _fallbackPositionTimer = Timer.periodic(_fallbackSampleInterval, (_) {
+      if (!_isRunActive) return;
+      Geolocator.getCurrentPosition(forceAndroidLocationManager: false)
+          .then(_onFallbackPosition)
+          .catchError((Object e) {
+        debugPrint('Fallback position error: $e');
+      });
+    });
+  }
+
+  void _onFallbackPosition(Position position) {
+    if (!_isRunActive || _positionStream == null) return;
+    final positions = state.savedPositions;
+    if (positions.isNotEmpty) {
+      final last = positions.last;
+      final dist = _haversineDistanceMeters([
+        LocationRequest(datetime: last.datetime, latitude: last.latitude, longitude: last.longitude),
+        LocationRequest(datetime: DateTime.now(), latitude: position.latitude, longitude: position.longitude),
+      ]);
+      if (dist < _minDistanceMeters) return; // skip if barely moved
+    }
+    // Add this position to track (same logic as stream)
+    try {
+      ref.read(metricsViewModelProvider.notifier).updateMetrics();
+    } catch (_) {}
+    final newPositions = List<LocationRequest>.from(positions);
+    newPositions.add(LocationRequest(
+      datetime: DateTime.now(),
+      latitude: position.latitude,
+      longitude: position.longitude,
+    ));
+    final newStepCount = _calculateStepsFromDistance(newPositions);
+    state = state.copyWith(
+      currentPosition: position,
+      savedPositions: newPositions,
+      stepCount: newStepCount,
+    );
+    _addGPSPoint(position);
+    _updateRunAnalytics();
+  }
+
+  void _stopFallbackPositionTimer() {
+    _fallbackPositionTimer?.cancel();
+    _fallbackPositionTimer = null;
   }
 
   void _addFirstPosition(Position p) {
@@ -169,8 +230,14 @@ class LocationViewModel extends StateNotifier<LocationState> {
   /// Stops the current run and finalizes analytics
   RunStatistics stopRun() {
     _isRunActive = false;
-    
-    // Calculate final statistics
+    _stopFallbackPositionTimer();
+    // Prefer _gpsTrack; if empty (e.g. stream never emitted) use savedPositions so we don't show all zeros
+    if (_gpsTrack.isEmpty && state.savedPositions.length >= 2) {
+      return _runStatisticsFromSavedPositions();
+    }
+    if (_gpsTrack.isEmpty && state.savedPositions.length >= 1) {
+      return _runStatisticsFromSavedPositions();
+    }
     return _calculateRunStatistics();
   }
 
@@ -197,6 +264,48 @@ class LocationViewModel extends StateNotifier<LocationState> {
       // Update territory capture
       _territory = TerritoryCaptureService.captureTerritory(_gpsTrack);
     }
+  }
+
+  /// Run statistics from savedPositions when _gpsTrack was not filled (fallback)
+  RunStatistics _runStatisticsFromSavedPositions() {
+    final positions = state.savedPositions;
+    if (positions.isEmpty) {
+      return RunStatistics(
+        totalDistance: 0,
+        totalTime: Duration.zero,
+        averageSpeed: 0,
+        maxSpeed: 0,
+        totalAltitudeGain: 0,
+        pointCount: 0,
+        detectedLoops: [],
+        territory: null,
+      );
+    }
+    if (positions.length < 2) {
+      return RunStatistics(
+        totalDistance: 0,
+        totalTime: Duration.zero,
+        averageSpeed: 0,
+        maxSpeed: 0,
+        totalAltitudeGain: 0,
+        pointCount: positions.length,
+        detectedLoops: [],
+        territory: null,
+      );
+    }
+    final totalDistance = _haversineDistanceMeters(positions);
+    final totalTime = positions.last.datetime.difference(positions.first.datetime);
+    final averageSpeed = totalTime.inSeconds > 0 ? totalDistance / totalTime.inSeconds : 0.0;
+    return RunStatistics(
+      totalDistance: totalDistance,
+      totalTime: totalTime,
+      averageSpeed: averageSpeed,
+      maxSpeed: averageSpeed,
+      totalAltitudeGain: 0,
+      pointCount: positions.length,
+      detectedLoops: [],
+      territory: null,
+    );
   }
 
   /// Calculates comprehensive run statistics
@@ -274,11 +383,13 @@ class LocationViewModel extends StateNotifier<LocationState> {
   /// Pauses the location stream.
   void stopLocationStream() {
     _positionStream?.pause();
+    _stopFallbackPositionTimer();
   }
 
   /// Resumes the location stream.
   void resumeLocationStream() {
     _positionStream?.resume();
+    if (_isRunActive) _startFallbackPositionTimer();
   }
 
   /// Cancels the location stream and cleans up resources.

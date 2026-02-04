@@ -110,11 +110,11 @@ class RunControlButton extends HookConsumerWidget {
               ),
           ],
         ),
-        // Last run details below when run has ended
-        if (runControlState.hasRunEnded && runControlState.finalStatistics != null) ...[
+        // Last run details (show when we have any completed run stats, including after "Start new run")
+        if ((runControlState.finalStatistics ?? runControlState.lastCompletedRunStatistics) != null) ...[
           const SizedBox(height: 16),
           _LastRunSummary(
-            stats: runControlState.finalStatistics!,
+            stats: (runControlState.finalStatistics ?? runControlState.lastCompletedRunStatistics)!,
             formatDuration: _formatDuration,
           ),
         ],

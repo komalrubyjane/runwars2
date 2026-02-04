@@ -56,16 +56,48 @@ class TrackingMapWithGrid extends HookConsumerWidget {
       });
     }
 
-    // Territory/route polyline — visible in real time as the user moves
-    final routePolyline = points.length >= 2
+    // Territory/route polyline — real-time trajectory from start to current/end (Strava-style)
+    final List<LatLng> routePoints = points.length >= 2
+        ? points
+        : points.length == 1
+            ? [points[0], LatLng(points[0].latitude + 0.00001, points[0].longitude)]
+            : <LatLng>[];
+    final routePolyline = routePoints.isNotEmpty
         ? Polyline(
             polylineId: const PolylineId('route'),
-            points: points,
+            points: routePoints,
             color: StravaTheme.orange,
-            width: 7,
+            width: 10,
             geodesic: true,
           )
         : null;
+
+    // Fit map to route when points change so trajectory is always visible
+    useEffect(() {
+      if (points.length < 2) return;
+      final c = controllerRef.value;
+      if (c == null) return;
+      double minLat = points.first.latitude;
+      double maxLat = points.first.latitude;
+      double minLng = points.first.longitude;
+      double maxLng = points.first.longitude;
+      for (final p in points) {
+        if (p.latitude < minLat) minLat = p.latitude;
+        if (p.latitude > maxLat) maxLat = p.latitude;
+        if (p.longitude < minLng) minLng = p.longitude;
+        if (p.longitude > maxLng) maxLng = p.longitude;
+      }
+      // Avoid invalid bounds when all points are the same
+      const pad = 0.0001;
+      if (maxLat <= minLat) { maxLat = minLat + pad; minLat = minLat - pad; }
+      if (maxLng <= minLng) { maxLng = minLng + pad; minLng = minLng - pad; }
+      final bounds = LatLngBounds(
+        southwest: LatLng(minLat, minLng),
+        northeast: LatLng(maxLat, maxLng),
+      );
+      c.animateCamera(CameraUpdate.newLatLngBounds(bounds, 48));
+      return null;
+    }, [points.length]);
 
     final loopPolygons = <Polygon>{};
     for (var i = 0; i < closedLoopPolygons.length; i++) {

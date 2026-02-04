@@ -17,8 +17,11 @@ class RunControlState {
   /// Whether the run has ended
   final bool hasRunEnded;
 
-  /// Final statistics from the run
+  /// Final statistics from the run (cleared when starting a new run)
   final RunStatistics? finalStatistics;
+
+  /// Last completed run statistics (kept when starting new run so "Last run" stays visible)
+  final RunStatistics? lastCompletedRunStatistics;
 
   /// Whether the run has been started at all
   bool get hasRunStarted => runStartTime != null;
@@ -30,6 +33,7 @@ class RunControlState {
     required this.runEndTime,
     required this.hasRunEnded,
     required this.finalStatistics,
+    this.lastCompletedRunStatistics,
   });
 
   factory RunControlState.initial() {
@@ -40,6 +44,7 @@ class RunControlState {
       runEndTime: null,
       hasRunEnded: false,
       finalStatistics: null,
+      lastCompletedRunStatistics: null,
     );
   }
 
@@ -50,6 +55,7 @@ class RunControlState {
     DateTime? runEndTime,
     bool? hasRunEnded,
     RunStatistics? finalStatistics,
+    RunStatistics? lastCompletedRunStatistics,
   }) {
     return RunControlState(
       isRunning: isRunning ?? this.isRunning,
@@ -58,6 +64,7 @@ class RunControlState {
       runEndTime: runEndTime ?? this.runEndTime,
       hasRunEnded: hasRunEnded ?? this.hasRunEnded,
       finalStatistics: finalStatistics ?? this.finalStatistics,
+      lastCompletedRunStatistics: lastCompletedRunStatistics ?? this.lastCompletedRunStatistics,
     );
   }
 
@@ -71,7 +78,8 @@ class RunControlState {
           runStartTime == other.runStartTime &&
           runEndTime == other.runEndTime &&
           hasRunEnded == other.hasRunEnded &&
-          finalStatistics == other.finalStatistics;
+          finalStatistics == other.finalStatistics &&
+          lastCompletedRunStatistics == other.lastCompletedRunStatistics;
 
   @override
   int get hashCode =>
@@ -80,5 +88,6 @@ class RunControlState {
       runStartTime.hashCode ^
       runEndTime.hashCode ^
       hasRunEnded.hashCode ^
-      finalStatistics.hashCode;
+      finalStatistics.hashCode ^
+      lastCompletedRunStatistics.hashCode;
 }

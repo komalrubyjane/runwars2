@@ -40,11 +40,11 @@ class StravaTrackingScreen extends HookConsumerWidget {
       return () {};
     }, []);
 
-    // Tick every 500ms when run active so timer and distance feel real-time
+    // Tick every 300ms when run active so timer, distance and speed update in real time
     final tick = useState(0);
     useEffect(() {
       if (!runState.isRunning && !runState.isPaused) return null;
-      final t = Timer.periodic(const Duration(milliseconds: 500), (_) {
+      final t = Timer.periodic(const Duration(milliseconds: 300), (_) {
         tick.value++;
       });
       return t.cancel;
